@@ -28,9 +28,12 @@
     color:var(--ink);
     font-family:'Space Grotesk', system-ui, sans-serif;
     overscroll-behavior:none;
+    position:fixed;
+    inset:0;
+    overflow:hidden;
   }
   #app{
-    height:100dvh;
+    height:100dvh; /* fallback until JS sets an exact px value */
     display:flex;
     flex-direction:column;
     background:
@@ -404,7 +407,7 @@
     outside: 'Tap anywhere near the grid to place a free-floating clue number.' + PAN_HINT,
     edge: 'Tap a grid line to cycle: plain \u2192 single line \u2192 double line.' + PAN_HINT,
     draw: 'Drag through corners and cell centers to draw a connected line \u2014 keep your finger down to chain segments. Or tap, then tap again for a single one.' + PAN_HINT,
-    erase: 'Tap any number, line, or edge to remove it.' + PAN_HINT
+    erase: 'Tap, or drag across several, to erase numbers, lines, and edges.' + PAN_HINT
   };
 
   let P = null;        // puzzle document
@@ -800,26 +803,37 @@
       render();
       return;
     }
-    if(tool==='erase'){
-      const oi = P.outside.findIndex(o=>Math.hypot(pt.x-o.x, pt.y-o.y) < NODE_THRESH);
-      if(oi>=0){ pushHistory(); P.outside.splice(oi,1); render(); return; }
+    return;
+  }
 
-      let bestLine=-1, bestD=LINE_ERASE_THRESH;
-      P.lines.forEach((line, idx)=>{
-        const A=nodeCoord(line.a), B=nodeCoord(line.b);
-        if(!A||!B) return;
-        const d = distToSeg(pt,A,B);
-        if(d<bestD){ bestD=d; bestLine=idx; }
-      });
-      if(bestLine>=0){ pushHistory(); P.lines.splice(bestLine,1); render(); return; }
+  // Erase-at-a-point, used both for a single tap and continuously while swiping.
+  // History is pushed lazily (once per gesture) so an entire swipe undoes in one step.
+  let eraseHistoryPushed = false;
+  function eraseAt(pt){
+    let changed = false;
+    const ensureHistory = ()=>{ if(!eraseHistoryPushed){ pushHistory(); eraseHistoryPushed = true; } };
 
-      const eh = findNearestEdge(pt, EDGE_THRESH);
-      if(eh && P.edges[eh.key]){ pushHistory(); delete P.edges[eh.key]; render(); return; }
-
-      const cell = findCellAt(pt);
-      if(cell && P.cellNumbers[cell.id]!==undefined){ pushHistory(); delete P.cellNumbers[cell.id]; render(); return; }
-      return;
+    for(let i=P.outside.length-1;i>=0;i--){
+      if(Math.hypot(pt.x-P.outside[i].x, pt.y-P.outside[i].y) < NODE_THRESH){
+        ensureHistory(); P.outside.splice(i,1); changed = true;
+      }
     }
+    for(let i=P.lines.length-1;i>=0;i--){
+      const line = P.lines[i];
+      const A = nodeCoord(line.a), B = nodeCoord(line.b);
+      if(A && B && distToSeg(pt,A,B) < LINE_ERASE_THRESH){
+        ensureHistory(); P.lines.splice(i,1); changed = true;
+      }
+    }
+    const eh = findNearestEdge(pt, EDGE_THRESH);
+    if(eh && P.edges[eh.key]){
+      ensureHistory(); delete P.edges[eh.key]; changed = true;
+    }
+    const cell = findCellAt(pt);
+    if(cell && P.cellNumbers[cell.id] !== undefined){
+      ensureHistory(); delete P.cellNumbers[cell.id]; changed = true;
+    }
+    return changed;
   }
 
   // ---------- Pointer gesture wiring ----------
@@ -858,6 +872,10 @@
     } else {
       downNode = null;
     }
+    if(currentTool==='erase'){
+      eraseHistoryPushed = false;
+      if(eraseAt(pt)) render();
+    }
   });
 
   boardSvg.addEventListener('pointermove', (evt)=>{
@@ -888,6 +906,8 @@
       }
       const tip = nodeIndex.get(dragChainNodeId) || downNode;
       updatePreviewLine(tip, pt);
+    } else if(currentTool==='erase'){
+      if(eraseAt(pt)) render();
     }
   });
 
@@ -907,6 +927,7 @@
     clearPreviewLine();
     if(!cancelled){
       if(currentTool==='draw') handleDrawRelease(pt, wasDragging);
+      else if(currentTool==='erase') eraseAt(pt);
       else if(!wasDragging) handleTap(currentTool, pt);
     } else {
       dragChainNodeId = null;
@@ -1128,6 +1149,23 @@
       console.error('delete failed', e);
       setDeviceStatus('Could not delete that puzzle.', false);
     }
+  }
+
+  // ---------- Viewport height fix ----------
+  // Mobile Safari's address/toolbar can overlap fixed-position content unless the
+  // app's height tracks the *visible* viewport exactly (100dvh alone isn't reliably
+  // enough on every iOS version). window.visualViewport reports that live.
+  const appEl = document.getElementById('app');
+  function fitToVisibleViewport(){
+    const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    appEl.style.height = h + 'px';
+  }
+  fitToVisibleViewport();
+  window.addEventListener('resize', fitToVisibleViewport);
+  window.addEventListener('orientationchange', fitToVisibleViewport);
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize', fitToVisibleViewport);
+    window.visualViewport.addEventListener('scroll', fitToVisibleViewport);
   }
 
   // ---------- Init ----------
