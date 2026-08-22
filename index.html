@@ -34,6 +34,8 @@
   }
   #app{
     height:100dvh; /* fallback until JS sets an exact px value */
+    width:100%;
+    overflow-x:hidden;
     display:flex;
     flex-direction:column;
     background:
@@ -121,10 +123,9 @@
     display:block;
   }
   #zoomControls{
-    position:absolute;
-    top:10px; right:10px;
+    position:fixed; /* not absolute: must stay put even while the canvas beneath it scrolls/pans */
     display:flex; flex-direction:column; gap:6px;
-    z-index:5;
+    z-index:15;
   }
   #zoomControls button{
     width:30px; height:30px;
@@ -405,7 +406,7 @@
   const HINTS = {
     number: 'Tap a cell to set its number. Tap it again to edit or clear.' + PAN_HINT,
     outside: 'Tap anywhere near the grid to place a free-floating clue number.' + PAN_HINT,
-    edge: 'Tap a grid line to cycle: plain \u2192 single line \u2192 double line.' + PAN_HINT,
+    edge: 'Tap, or drag across several, to cycle: plain \u2192 single line \u2192 double line.' + PAN_HINT,
     draw: 'Drag through corners and cell centers to draw a connected line \u2014 keep your finger down to chain segments. Or tap, then tap again for a single one.' + PAN_HINT,
     erase: 'Tap, or drag across several, to erase numbers, lines, and edges.' + PAN_HINT
   };
@@ -793,17 +794,24 @@
       }
       return;
     }
-    if(tool==='edge'){
-      const eh = findNearestEdge(pt, EDGE_THRESH);
-      if(!eh) return;
-      pushHistory();
-      const cur = P.edges[eh.key] || 0;
-      const next = (cur+1) % 3;
-      if(next===0) delete P.edges[eh.key]; else P.edges[eh.key] = next;
-      render();
-      return;
-    }
     return;
+  }
+
+  // Edge-cycle-at-a-point, used both for a single tap and continuously while
+  // dragging across several edges. Each edge only cycles once per gesture, even
+  // if the finger lingers near it across several move events. History is pushed
+  // lazily (once per gesture) so a whole drag undoes in one step.
+  let edgeHistoryPushed = false;
+  let dragEdgesTouched = new Set();
+  function edgeAt(pt){
+    const eh = findNearestEdge(pt, EDGE_THRESH);
+    if(!eh || dragEdgesTouched.has(eh.key)) return false;
+    dragEdgesTouched.add(eh.key);
+    if(!edgeHistoryPushed){ pushHistory(); edgeHistoryPushed = true; }
+    const cur = P.edges[eh.key] || 0;
+    const next = (cur+1) % 3;
+    if(next===0) delete P.edges[eh.key]; else P.edges[eh.key] = next;
+    return true;
   }
 
   // Erase-at-a-point, used both for a single tap and continuously while swiping.
@@ -876,6 +884,11 @@
       eraseHistoryPushed = false;
       if(eraseAt(pt)) render();
     }
+    if(currentTool==='edge'){
+      edgeHistoryPushed = false;
+      dragEdgesTouched = new Set();
+      if(edgeAt(pt)) render();
+    }
   });
 
   boardSvg.addEventListener('pointermove', (evt)=>{
@@ -908,6 +921,8 @@
       updatePreviewLine(tip, pt);
     } else if(currentTool==='erase'){
       if(eraseAt(pt)) render();
+    } else if(currentTool==='edge'){
+      if(edgeAt(pt)) render();
     }
   });
 
@@ -927,7 +942,8 @@
     clearPreviewLine();
     if(!cancelled){
       if(currentTool==='draw') handleDrawRelease(pt, wasDragging);
-      else if(currentTool==='erase') eraseAt(pt);
+      else if(currentTool==='erase'){ if(eraseAt(pt)) render(); }
+      else if(currentTool==='edge'){ if(edgeAt(pt)) render(); }
       else if(!wasDragging) handleTap(currentTool, pt);
     } else {
       dragChainNodeId = null;
@@ -951,12 +967,28 @@
   undoBtn.addEventListener('click', undo);
 
   // ---------- New grid ----------
+  // "Has content" ignores the default border (every fresh grid starts framed),
+  // so New Grid / Clear Board don't nag about a board nobody has touched yet.
+  function hasNonBorderEdges(doc){
+    for(const [key,e] of mesh.edges){
+      const val = doc.edges[key] || 0;
+      const isBoundary = e.cells.length===1;
+      if(isBoundary){ if(val!==1) return true; }
+      else { if(val!==0) return true; }
+    }
+    return false;
+  }
   function hasContent(doc){
-    return Object.keys(doc.cellNumbers).length>0 || Object.keys(doc.edges).length>0 ||
+    return Object.keys(doc.cellNumbers).length>0 || hasNonBorderEdges(doc) ||
            doc.lines.length>0 || doc.outside.length>0;
   }
   function freshDoc(shape, rows, cols){
     return { shape, rows, cols, cellNumbers:{}, edges:{}, lines:[], outside:[] };
+  }
+  function applyDefaultBorder(){
+    for(const [key,e] of mesh.edges){
+      if(e.cells.length===1) P.edges[key] = 1;
+    }
   }
   newGridBtn.addEventListener('click', ()=>{
     if(hasContent(P) && !confirm('Start a new grid? This clears the current board (save first if you want to keep it).')) return;
@@ -964,6 +996,7 @@
     history = [];
     pendingDrawNode = null;
     rebuildMesh();
+    applyDefaultBorder();
     render();
   });
 
@@ -1024,6 +1057,7 @@
     if(!confirm('Clear all numbers, lines and edges from the current grid?')) return;
     pushHistory();
     P.cellNumbers={}; P.edges={}; P.lines=[]; P.outside=[];
+    applyDefaultBorder(); // clearing wipes content, not the outer frame
     render();
   });
 
@@ -1156,9 +1190,16 @@
   // app's height tracks the *visible* viewport exactly (100dvh alone isn't reliably
   // enough on every iOS version). window.visualViewport reports that live.
   const appEl = document.getElementById('app');
+  const zoomControlsEl = document.getElementById('zoomControls');
   function fitToVisibleViewport(){
     const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     appEl.style.height = h + 'px';
+    // Zoom controls are fixed to the viewport (so they never scroll away with the
+    // canvas beneath them) but should still sit just inside the canvas's corner,
+    // wherever that lands once the topbar's real height is known.
+    const r = canvasWrap.getBoundingClientRect();
+    zoomControlsEl.style.top = (r.top + 10) + 'px';
+    zoomControlsEl.style.right = (window.innerWidth - r.right + 10) + 'px';
   }
   fitToVisibleViewport();
   window.addEventListener('resize', fitToVisibleViewport);
@@ -1167,10 +1208,12 @@
     window.visualViewport.addEventListener('resize', fitToVisibleViewport);
     window.visualViewport.addEventListener('scroll', fitToVisibleViewport);
   }
+  setTimeout(fitToVisibleViewport, 300); // catch late layout shifts (web fonts settling, etc.)
 
   // ---------- Init ----------
   P = freshDoc('square', 5, 5);
   rebuildMesh();
+  applyDefaultBorder();
   hintEl.textContent = HINTS.number;
   render();
 })();
