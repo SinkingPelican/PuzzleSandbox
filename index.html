@@ -19,6 +19,8 @@
     --ink-dim:#8fa6bd;
     --accent:#e8a33d;
     --accent2:#e2603f;
+    --fill-black:#070c14;
+    --fill-white:#eef1f4;
     --radius:10px;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
@@ -170,6 +172,11 @@
 
   /* ---------- SVG element styles ---------- */
   .cellpoly{ fill:var(--cell-fill); stroke:var(--paper-line); stroke-width:1; }
+  .cellpoly.fill-black{ fill:var(--fill-black); }
+  .cellpoly.fill-white{ fill:var(--fill-white); }
+  .cellcircle{ stroke:var(--ink); stroke-width:1.6; }
+  .cellcircle.circle-white{ fill:var(--fill-white); }
+  .cellcircle.circle-black{ fill:var(--fill-black); }
   .guide{ stroke:var(--grid-guide); stroke-width:1.4; stroke-dasharray:3 5; }
   .edgeline.single{ stroke:var(--ink); stroke-width:5.5; stroke-linecap:round; }
   .edgeline.double{ stroke:var(--accent2); stroke-width:3.6; stroke-linecap:round; }
@@ -235,6 +242,61 @@
     padding:14px 0;
   }
   #npClear, #npBack{ color:var(--accent2); font-size:16px; }
+
+  .type-tabs{ display:flex; gap:6px; margin-bottom:14px; }
+  .typetab{
+    flex:1;
+    background:var(--paper2);
+    border:1px solid var(--paper-line);
+    color:var(--ink-dim);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:15px;
+    border-radius:9px;
+    padding:10px 0;
+  }
+  .typetab.active{ color:var(--accent); border-color:var(--accent); background:rgba(232,163,61,0.12); }
+  .letter-grid{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:8px;
+    margin-bottom:6px;
+  }
+  .letter-grid button{
+    background:var(--paper2);
+    border:1px solid var(--paper-line);
+    color:var(--ink);
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:700;
+    font-size:19px;
+    border-radius:9px;
+    padding:14px 0;
+  }
+  .swatch-row{ display:flex; gap:10px; margin-bottom:6px; }
+  .swatch{
+    flex:1;
+    display:flex; flex-direction:column; align-items:center; gap:8px;
+    background:var(--paper2);
+    border:1px solid var(--paper-line);
+    color:var(--ink);
+    font-family:'Space Grotesk',sans-serif;
+    font-size:13px;
+    font-weight:600;
+    border-radius:10px;
+    padding:16px 0;
+  }
+  .swatch-dot{ width:30px; height:30px; border-radius:50%; border:2px solid var(--ink); }
+  .swatch-dot.dot-white{ background:var(--fill-white); }
+  .swatch-dot.dot-black{ background:var(--fill-black); }
+  .swatch-square{ width:30px; height:30px; border-radius:5px; border:2px solid var(--ink); }
+  .swatch-square.sq-white{ background:var(--fill-white); }
+  .swatch-square.sq-black{ background:var(--fill-black); }
+  #numberDone{
+    width:100%; margin-top:4px; margin-bottom:6px;
+    padding:12px; border-radius:9px; border:1px solid var(--accent);
+    background:var(--accent); color:#231404;
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13.5px;
+  }
+
   .sheet-actions{ display:flex; gap:8px; }
   .sheet-actions button{
     flex:1;
@@ -304,7 +366,7 @@
   <div id="hint"></div>
 
   <footer id="toolbar">
-    <button class="tool active" data-tool="number"><span class="ti">#</span><span class="tl">Number</span></button>
+    <button class="tool active" data-tool="cell"><span class="ti">&#8862;</span><span class="tl">Cell</span></button>
     <button class="tool" data-tool="outside"><span class="ti">&#9678;</span><span class="tl">Outside</span></button>
     <button class="tool" data-tool="edge"><span class="ti">&#9552;</span><span class="tl">Edge</span></button>
     <button class="tool" data-tool="draw"><span class="ti">&#10530;</span><span class="tl">Draw</span></button>
@@ -326,6 +388,24 @@
       <div class="sheet-actions">
         <button id="npCancel" class="ghost">Cancel</button>
         <button id="npDone" class="primary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cell content sheet: number / letter / circle / fill -->
+  <div id="cellSheet" class="overlay hidden">
+    <div class="sheet">
+      <div class="sheet-title">Cell content</div>
+      <div class="type-tabs">
+        <button class="typetab" data-type="number">123</button>
+        <button class="typetab" data-type="letter">ABC</button>
+        <button class="typetab" data-type="circle">&#9679;</button>
+        <button class="typetab" data-type="fill">&#9632;</button>
+      </div>
+      <div id="cellSheetBody"></div>
+      <div class="sheet-actions">
+        <button id="cellCancel" class="ghost">Cancel</button>
+        <button id="cellClear" class="ghost danger">Clear cell</button>
       </div>
     </div>
   </div>
@@ -398,17 +478,23 @@
   const npDone = document.getElementById('npDone');
   const npBack = document.getElementById('npBack');
   const npClear = document.getElementById('npClear');
+  const cellSheetEl = document.getElementById('cellSheet');
+  const cellSheetBody = document.getElementById('cellSheetBody');
+  const cellCancel = document.getElementById('cellCancel');
+  const cellClear = document.getElementById('cellClear');
   const undoBtn = document.getElementById('undoBtn');
   const zoomInBtn = document.getElementById('zoomIn');
   const zoomOutBtn = document.getElementById('zoomOut');
 
+  const PENTOMINO_LETTERS = ['F','I','L','N','P','T','U','V','W','X','Y','Z'];
+
   const PAN_HINT = ' Use two fingers to pan.';
   const HINTS = {
-    number: 'Tap a cell to set its number. Tap it again to edit or clear.' + PAN_HINT,
+    cell: 'Tap a cell to set its content \u2014 number, letter, circle, or fill.' + PAN_HINT,
     outside: 'Tap anywhere near the grid to place a free-floating clue number.' + PAN_HINT,
     edge: 'Tap, or drag across several, to cycle: plain \u2192 single line \u2192 double line.' + PAN_HINT,
     draw: 'Drag through corners and cell centers to draw a connected line \u2014 keep your finger down to chain segments. Or tap, then tap again for a single one.' + PAN_HINT,
-    erase: 'Tap, or drag across several, to erase numbers, lines, and edges.' + PAN_HINT
+    erase: 'Tap, or drag across several, to erase cell content, lines, and edges.' + PAN_HINT
   };
 
   let P = null;        // puzzle document
@@ -416,14 +502,19 @@
   let cellById = new Map();
   let allNodes = [];    // corners + cell centers, for the Draw tool
   let nodeIndex = new Map();
-  let currentTool = 'number';
+  let currentTool = 'cell';
   let history = [];
   let outsideIdCounter = 1;
   let zoomLevel = 1;
 
-  // numpad state
+  // numpad state (outside clue numbers only)
   let pendingTarget = null;
   let npValue = '';
+
+  // cell content sheet state
+  let cellSheetTab = 'number';
+  let cellSheetValue = '';
+  let pendingCellId = null;
 
   // draw-tool state
   let pendingDrawNode = null;   // node id awaiting a second tap
@@ -564,6 +655,14 @@
     for(const c of mesh.cells){ if(pointInPoly(pt, c.poly)) return c; }
     return null;
   }
+  function cellInradius(cell){
+    let minD = Infinity;
+    for(const p of cell.poly){
+      const d = Math.hypot(p.x-cell.center.x, p.y-cell.center.y);
+      if(d<minD) minD = d;
+    }
+    return minD;
+  }
   function distToSeg(p,a,b){
     const dx=b.x-a.x, dy=b.y-a.y;
     const len2 = dx*dx+dy*dy;
@@ -626,8 +725,10 @@
     const gNodes = el('g',{});
 
     for(const c of mesh.cells){
+      const content = P.cellContent[c.id];
+      const fillCls = content && content.type==='fill' ? ' fill-'+content.value : '';
       const d = 'M'+c.poly.map(p=>`${p.x},${p.y}`).join('L')+'Z';
-      gCells.appendChild(el('path',{d, class:'cellpoly'}));
+      gCells.appendChild(el('path',{d, class:'cellpoly'+fillCls}));
     }
 
     for(const [key,e] of mesh.edges){
@@ -651,10 +752,15 @@
     }
 
     for(const c of mesh.cells){
-      const val = P.cellNumbers[c.id];
-      if(val !== undefined && val !== ''){
-        gNumbers.appendChild(el('text',{x:c.center.x,y:c.center.y,class:'cellnum'}, val));
+      const content = P.cellContent[c.id];
+      if(!content) continue;
+      if(content.type==='number' || content.type==='letter'){
+        gNumbers.appendChild(el('text',{x:c.center.x,y:c.center.y,class:'cellnum'}, content.value));
+      } else if(content.type==='circle'){
+        const r = cellInradius(c) * 0.6;
+        gNumbers.appendChild(el('circle',{cx:c.center.x,cy:c.center.y,r,class:'cellcircle circle-'+content.value}));
       }
+      // 'fill' content is drawn as part of the cell polygon itself, above.
     }
 
     for(const o of P.outside){
@@ -677,7 +783,7 @@
   function openNumpad(target){
     pendingTarget = target;
     npValue = (target.initial !== undefined && target.initial !== null) ? String(target.initial) : '';
-    numpadTitle.textContent = target.type==='cell' ? 'Cell number' : 'Outside number';
+    numpadTitle.textContent = 'Outside number';
     updateNumpadDisplay();
     numpadEl.classList.remove('hidden');
   }
@@ -701,27 +807,122 @@
   npDone.addEventListener('click', ()=>{
     if(!pendingTarget){ closeNumpad(); return; }
     pushHistory();
-    if(pendingTarget.type==='cell'){
-      if(npValue==='') delete P.cellNumbers[pendingTarget.cellId];
-      else P.cellNumbers[pendingTarget.cellId] = npValue;
-    } else if(pendingTarget.type==='outside'){
-      if(npValue===''){
-        if(pendingTarget.id!==null){
-          const idx = P.outside.findIndex(o=>o.id===pendingTarget.id);
-          if(idx>=0) P.outside.splice(idx,1);
-        }
+    if(npValue===''){
+      if(pendingTarget.id!==null){
+        const idx = P.outside.findIndex(o=>o.id===pendingTarget.id);
+        if(idx>=0) P.outside.splice(idx,1);
+      }
+    } else {
+      if(pendingTarget.id!==null){
+        const o = P.outside.find(o=>o.id===pendingTarget.id);
+        if(o) o.value = npValue;
       } else {
-        if(pendingTarget.id!==null){
-          const o = P.outside.find(o=>o.id===pendingTarget.id);
-          if(o) o.value = npValue;
-        } else {
-          P.outside.push({ id: outsideIdCounter++, x: pendingTarget.x, y: pendingTarget.y, value: npValue });
-        }
+        P.outside.push({ id: outsideIdCounter++, x: pendingTarget.x, y: pendingTarget.y, value: npValue });
       }
     }
     closeNumpad();
     render();
   });
+
+  // ---------- Cell content sheet: number / letter / circle / fill ----------
+  function openCellSheet(cellId){
+    pendingCellId = cellId;
+    const existing = P.cellContent[cellId];
+    cellSheetTab = existing ? existing.type : 'number';
+    cellSheetValue = existing && (existing.type==='number' || existing.type==='letter') ? existing.value : '';
+    renderCellSheet();
+    cellSheetEl.classList.remove('hidden');
+  }
+  function closeCellSheet(){
+    cellSheetEl.classList.add('hidden');
+    pendingCellId = null;
+  }
+  function commitCellContent(type, value){
+    if(!pendingCellId) return;
+    pushHistory();
+    if((type==='number' || type==='letter') && value===''){
+      delete P.cellContent[pendingCellId];
+    } else {
+      P.cellContent[pendingCellId] = { type, value };
+    }
+    closeCellSheet();
+    render();
+  }
+  function renderCellSheet(){
+    document.querySelectorAll('.typetab').forEach(b=>b.classList.toggle('active', b.dataset.type===cellSheetTab));
+    if(cellSheetTab==='number'){
+      cellSheetBody.innerHTML =
+        `<div class="numpad-display" id="cellNumDisplay">${cellSheetValue===''?'&nbsp;':cellSheetValue}</div>
+         <div class="numpad-grid">
+           <button data-d="1">1</button><button data-d="2">2</button><button data-d="3">3</button>
+           <button data-d="4">4</button><button data-d="5">5</button><button data-d="6">6</button>
+           <button data-d="7">7</button><button data-d="8">8</button><button data-d="9">9</button>
+           <button id="cellNumBack">&#9003;</button><button data-d="0">0</button><button id="cellNumClearVal">C</button>
+         </div>
+         <button id="cellNumDone">Set number</button>`;
+    } else if(cellSheetTab==='letter'){
+      cellSheetBody.innerHTML =
+        `<div class="letter-grid">${PENTOMINO_LETTERS.map(l=>`<button data-letter="${l}">${l}</button>`).join('')}</div>`;
+    } else if(cellSheetTab==='circle'){
+      cellSheetBody.innerHTML =
+        `<div class="swatch-row">
+           <button data-circle="white"><span class="swatch-dot dot-white"></span>White circle</button>
+           <button data-circle="black"><span class="swatch-dot dot-black"></span>Black circle</button>
+         </div>`;
+      cellSheetBody.querySelectorAll('.swatch-row button').forEach(b=>b.className='swatch');
+    } else if(cellSheetTab==='fill'){
+      cellSheetBody.innerHTML =
+        `<div class="swatch-row">
+           <button data-fill="white"><span class="swatch-square sq-white"></span>White fill</button>
+           <button data-fill="black"><span class="swatch-square sq-black"></span>Black fill</button>
+         </div>`;
+      cellSheetBody.querySelectorAll('.swatch-row button').forEach(b=>b.className='swatch');
+    }
+  }
+  document.querySelectorAll('.typetab').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      cellSheetTab = b.dataset.type;
+      cellSheetValue = '';
+      renderCellSheet();
+    });
+  });
+  cellSheetBody.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button');
+    if(!btn) return;
+    if(btn.dataset.d !== undefined){
+      if(cellSheetValue.length<3) cellSheetValue += btn.dataset.d;
+      const disp = document.getElementById('cellNumDisplay');
+      if(disp) disp.textContent = cellSheetValue===''?'\u00A0':cellSheetValue;
+      return;
+    }
+    if(btn.id==='cellNumBack'){
+      cellSheetValue = cellSheetValue.slice(0,-1);
+      const disp = document.getElementById('cellNumDisplay');
+      if(disp) disp.textContent = cellSheetValue===''?'\u00A0':cellSheetValue;
+      return;
+    }
+    if(btn.id==='cellNumClearVal'){
+      cellSheetValue = '';
+      const disp = document.getElementById('cellNumDisplay');
+      if(disp) disp.textContent = '\u00A0';
+      return;
+    }
+    if(btn.id==='cellNumDone'){ commitCellContent('number', cellSheetValue); return; }
+    if(btn.dataset.letter){ commitCellContent('letter', btn.dataset.letter); return; }
+    if(btn.dataset.circle){ commitCellContent('circle', btn.dataset.circle); return; }
+    if(btn.dataset.fill){ commitCellContent('fill', btn.dataset.fill); return; }
+  });
+  cellCancel.addEventListener('click', closeCellSheet);
+  cellClear.addEventListener('click', ()=>{
+    if(!pendingCellId) return;
+    if(P.cellContent[pendingCellId]!==undefined){
+      pushHistory();
+      delete P.cellContent[pendingCellId];
+    }
+    closeCellSheet();
+    render();
+  });
+
 
   // ---------- Draw tool helpers ----------
   function updatePreviewLine(startNode, pt){
@@ -778,10 +979,10 @@
 
   // ---------- Tap handling (non-draw tools) ----------
   function handleTap(tool, pt){
-    if(tool==='number'){
+    if(tool==='cell'){
       const cell = findCellAt(pt);
       if(!cell) return;
-      openNumpad({ type:'cell', cellId: cell.id, initial: P.cellNumbers[cell.id] });
+      openCellSheet(cell.id);
       return;
     }
     if(tool==='outside'){
@@ -838,8 +1039,8 @@
       ensureHistory(); delete P.edges[eh.key]; changed = true;
     }
     const cell = findCellAt(pt);
-    if(cell && P.cellNumbers[cell.id] !== undefined){
-      ensureHistory(); delete P.cellNumbers[cell.id]; changed = true;
+    if(cell && P.cellContent[cell.id] !== undefined){
+      ensureHistory(); delete P.cellContent[cell.id]; changed = true;
     }
     return changed;
   }
@@ -979,11 +1180,11 @@
     return false;
   }
   function hasContent(doc){
-    return Object.keys(doc.cellNumbers).length>0 || hasNonBorderEdges(doc) ||
+    return Object.keys(doc.cellContent).length>0 || hasNonBorderEdges(doc) ||
            doc.lines.length>0 || doc.outside.length>0;
   }
   function freshDoc(shape, rows, cols){
-    return { shape, rows, cols, cellNumbers:{}, edges:{}, lines:[], outside:[] };
+    return { shape, rows, cols, cellContent:{}, edges:{}, lines:[], outside:[] };
   }
   function applyDefaultBorder(){
     for(const [key,e] of mesh.edges){
@@ -1022,8 +1223,15 @@
       }
       d.lines = migrated;
     }
+    if(!d.cellContent){
+      d.cellContent = {};
+      if(d.cellNumbers){
+        for(const cid in d.cellNumbers) d.cellContent[cid] = { type:'number', value:d.cellNumbers[cid] };
+      }
+    }
     P = Object.assign(freshDoc(d.shape||'square', d.rows||5, d.cols||5), d);
     delete P.chords;
+    delete P.cellNumbers;
     let maxId = 0;
     P.outside.forEach(o=>{ if(o.id>maxId) maxId=o.id; });
     outsideIdCounter = maxId+1;
@@ -1054,9 +1262,9 @@
   panelClose.addEventListener('click', ()=>{ panelEl.classList.add('hidden'); });
   clearAllBtn.addEventListener('click', ()=>{
     if(!hasContent(P)) return;
-    if(!confirm('Clear all numbers, lines and edges from the current grid?')) return;
+    if(!confirm('Clear all cell content, lines and edges from the current grid?')) return;
     pushHistory();
-    P.cellNumbers={}; P.edges={}; P.lines=[]; P.outside=[];
+    P.cellContent={}; P.edges={}; P.lines=[]; P.outside=[];
     applyDefaultBorder(); // clearing wipes content, not the outer frame
     render();
   });
@@ -1214,7 +1422,7 @@
   P = freshDoc('square', 7, 7);
   rebuildMesh();
   applyDefaultBorder();
-  hintEl.textContent = HINTS.number;
+  hintEl.textContent = HINTS.cell;
   render();
 })();
 </script>
