@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Grid / Sandbox — Puzzle Editor</title>
+<title>Puzzle Editor - Sandbox</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -513,6 +513,7 @@
 
   // cell content sheet state
   let cellSheetTab = 'number';
+  let lastUsedCellTab = 'number'; // remembered across cells, so the sheet opens on whatever you used last
   let cellSheetValue = '';
   let pendingCellId = null;
 
@@ -828,7 +829,7 @@
   function openCellSheet(cellId){
     pendingCellId = cellId;
     const existing = P.cellContent[cellId];
-    cellSheetTab = existing ? existing.type : 'number';
+    cellSheetTab = existing ? existing.type : lastUsedCellTab;
     cellSheetValue = existing && (existing.type==='number' || existing.type==='letter') ? existing.value : '';
     renderCellSheet();
     cellSheetEl.classList.remove('hidden');
@@ -845,6 +846,7 @@
     } else {
       P.cellContent[pendingCellId] = { type, value };
     }
+    lastUsedCellTab = type;
     closeCellSheet();
     render();
   }
