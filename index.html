@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Puzzle Editor - Sandbox</title>
+<title>Grid / Sandbox — Puzzle Editor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -190,6 +190,15 @@
   .nodedot.centernode{ fill:var(--ink-dim); opacity:.5; }
   .nodedot.pending{ fill:var(--accent2); opacity:1; }
 
+  /* Faint "not yet pulled from the solution" previews, shown only with the Reveal tool active */
+  .ghostnum{ fill:var(--ink-dim); opacity:0.55; font-family:'IBM Plex Mono',monospace; font-weight:700; font-size:24px; text-anchor:middle; dominant-baseline:central; }
+  .ghostcircle{ fill:none; stroke:var(--ink-dim); stroke-width:1.6; stroke-dasharray:3 3; opacity:0.6; }
+  .ghostfill{ fill:var(--ink-dim); opacity:0.16; pointer-events:none; }
+  .ghostedge{ stroke:var(--ink-dim); stroke-width:3; stroke-dasharray:2 4; opacity:0.55; }
+  .ghostline{ stroke:var(--ink-dim); stroke-width:2.5; stroke-dasharray:2 4; opacity:0.55; }
+  .ghostoutsidebg{ fill:none; stroke:var(--ink-dim); stroke-width:1.5; stroke-dasharray:2 3; opacity:0.6; }
+  .ghostoutsidenum{ fill:var(--ink-dim); opacity:0.6; font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:17px; text-anchor:middle; dominant-baseline:central; }
+
   /* ---------- Overlays ---------- */
   .overlay{
     position:fixed; inset:0;
@@ -271,6 +280,7 @@
     border-radius:9px;
     padding:14px 0;
   }
+  .letter-grid button.selected{ border-color:var(--accent); background:rgba(232,163,61,0.16); color:var(--accent); }
   .swatch-row{ display:flex; gap:10px; margin-bottom:6px; }
   .swatch{
     flex:1;
@@ -284,18 +294,13 @@
     border-radius:10px;
     padding:16px 0;
   }
+  .swatch.selected{ border-color:var(--accent); background:rgba(232,163,61,0.12); }
   .swatch-dot{ width:30px; height:30px; border-radius:50%; border:2px solid var(--ink); }
   .swatch-dot.dot-white{ background:var(--fill-white); }
   .swatch-dot.dot-black{ background:var(--fill-black); }
   .swatch-square{ width:30px; height:30px; border-radius:5px; border:2px solid var(--ink); }
   .swatch-square.sq-white{ background:var(--fill-white); }
   .swatch-square.sq-black{ background:var(--fill-black); }
-  #numberDone{
-    width:100%; margin-top:4px; margin-bottom:6px;
-    padding:12px; border-radius:9px; border:1px solid var(--accent);
-    background:var(--accent); color:#231404;
-    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13.5px;
-  }
 
   .sheet-actions{ display:flex; gap:8px; }
   .sheet-actions button{
@@ -325,7 +330,7 @@
   .puzzle-actions button.small{ padding:6px 10px; font-size:12px; flex:none; }
   .muted{ color:var(--ink-dim); font-size:12.5px; padding:8px 2px; }
   #saveStatus{ min-height:15px; font-size:12px; margin:2px 2px 10px; }
-  #ioText{ height:70px; resize:vertical; font-size:11px; margin-bottom:8px; }
+  #ioText{ height:38px; resize:vertical; font-size:10.5px; margin-bottom:8px; opacity:0.75; }
   .divider{ border:none; border-top:1px solid var(--paper-line); margin:14px 0; }
 </style>
 </head>
@@ -371,6 +376,7 @@
     <button class="tool" data-tool="edge"><span class="ti">&#9552;</span><span class="tl">Edge</span></button>
     <button class="tool" data-tool="draw"><span class="ti">&#10530;</span><span class="tl">Draw</span></button>
     <button class="tool" data-tool="erase"><span class="ti">&#10006;</span><span class="tl">Erase</span></button>
+    <button class="tool" data-tool="reveal"><span class="ti">&#9673;</span><span class="tl">Reveal</span></button>
     <button class="tool" id="undoBtn"><span class="ti">&#8634;</span><span class="tl">Undo</span></button>
   </footer>
 
@@ -405,7 +411,8 @@
       <div id="cellSheetBody"></div>
       <div class="sheet-actions">
         <button id="cellCancel" class="ghost">Cancel</button>
-        <button id="cellClear" class="ghost danger">Clear cell</button>
+        <button id="cellConfirm" class="primary">Confirm</button>
+        <button id="cellClear" class="ghost danger">Clear</button>
       </div>
     </div>
   </div>
@@ -413,7 +420,29 @@
   <!-- Save/Load panel -->
   <div id="panel" class="overlay hidden">
     <div class="sheet">
-      <div class="sheet-title">Save your puzzle</div>
+      <div class="sheet-title">Save on this device</div>
+      <div class="panel-row">
+        <input id="saveName" type="text" placeholder="Name this puzzle">
+        <button id="saveBtn" class="primary" style="flex:0 0 auto;">Save</button>
+      </div>
+      <div id="deviceStatus" class="muted"></div>
+      <div id="puzzleList" class="puzzle-list"></div>
+      <button id="clearAllBtn" class="ghost danger" style="width:100%; margin-top:2px;">Clear board</button>
+
+      <hr class="divider">
+      <div class="sheet-title">Test solve</div>
+      <div id="solutionStatus" class="muted"></div>
+      <div class="panel-row">
+        <button id="lockSolutionBtn" class="ghost small">Lock grid as solution</button>
+        <button id="revealAllBtn" class="ghost small">Reveal all</button>
+      </div>
+      <div class="panel-row" style="margin-bottom:6px;">
+        <button id="resetGivensBtn" class="ghost small">Reset givens</button>
+        <button id="unlockSolutionBtn" class="ghost small danger">Discard solution</button>
+      </div>
+
+      <hr class="divider">
+      <div class="sheet-title">Backup (JSON)</div>
       <textarea id="ioText" placeholder="Puzzle JSON appears here — or paste JSON here to load it"></textarea>
       <div class="panel-row" style="margin-bottom:6px;">
         <button id="exportBtn" class="ghost small">Copy current puzzle</button>
@@ -423,19 +452,22 @@
         <button id="importBtn" class="ghost small" style="flex:1;">Load pasted JSON</button>
       </div>
       <div id="saveStatus" class="muted"></div>
-      <button id="clearAllBtn" class="ghost danger" style="width:100%; margin-top:6px;">Clear board</button>
-
-      <hr class="divider">
-      <div class="sheet-title" id="deviceSaveTitle">Save on this device</div>
-      <div class="panel-row">
-        <input id="saveName" type="text" placeholder="Name this puzzle">
-        <button id="saveBtn" class="primary" style="flex:0 0 auto;">Save</button>
-      </div>
-      <div id="deviceStatus" class="muted"></div>
-      <div id="puzzleList" class="puzzle-list"></div>
 
       <div class="sheet-actions">
         <button id="panelClose" class="primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-app confirm dialog: native confirm()/alert() are unreliable in standalone
+       (home-screen) iOS web apps, so destructive actions use this instead. -->
+  <div id="confirmSheet" class="overlay hidden">
+    <div class="sheet">
+      <div class="sheet-title">Please confirm</div>
+      <div id="confirmMessage" style="font-size:14.5px; line-height:1.5; color:var(--ink); margin-bottom:16px;"></div>
+      <div class="sheet-actions">
+        <button id="confirmCancel" class="ghost">Cancel</button>
+        <button id="confirmOk" class="primary">OK</button>
       </div>
     </div>
   </div>
@@ -467,6 +499,11 @@
   const deviceStatus = document.getElementById('deviceStatus');
   const puzzleListEl = document.getElementById('puzzleList');
   const clearAllBtn = document.getElementById('clearAllBtn');
+  const solutionStatus = document.getElementById('solutionStatus');
+  const lockSolutionBtn = document.getElementById('lockSolutionBtn');
+  const revealAllBtn = document.getElementById('revealAllBtn');
+  const resetGivensBtn = document.getElementById('resetGivensBtn');
+  const unlockSolutionBtn = document.getElementById('unlockSolutionBtn');
   const ioText = document.getElementById('ioText');
   const exportBtn = document.getElementById('exportBtn');
   const downloadBtn = document.getElementById('downloadBtn');
@@ -482,6 +519,10 @@
   const cellSheetBody = document.getElementById('cellSheetBody');
   const cellCancel = document.getElementById('cellCancel');
   const cellClear = document.getElementById('cellClear');
+  const confirmSheetEl = document.getElementById('confirmSheet');
+  const confirmMessageEl = document.getElementById('confirmMessage');
+  const confirmCancelBtn = document.getElementById('confirmCancel');
+  const confirmOkBtn = document.getElementById('confirmOk');
   const undoBtn = document.getElementById('undoBtn');
   const zoomInBtn = document.getElementById('zoomIn');
   const zoomOutBtn = document.getElementById('zoomOut');
@@ -496,6 +537,15 @@
     draw: 'Drag through corners and cell centers to draw a connected line \u2014 keep your finger down to chain segments. Or tap, then tap again for a single one.' + PAN_HINT,
     erase: 'Tap, or drag across several, to erase cell content, lines, and edges.' + PAN_HINT
   };
+  function updateHint(){
+    if(currentTool==='reveal'){
+      hintEl.textContent = P.solution
+        ? ('Tap, or drag across several, to pull clues from the locked solution.' + PAN_HINT)
+        : ('Lock a solution first (menu \u2192 "Lock grid as solution"), then use this tool to pull clues from it.' + PAN_HINT);
+    } else {
+      hintEl.textContent = HINTS[currentTool] || '';
+    }
+  }
 
   let P = null;        // puzzle document
   let mesh = null;      // generated geometry
@@ -708,6 +758,8 @@
     P = JSON.parse(history.pop());
     rebuildMesh();
     syncTopbarFromP();
+    updateSolutionStatus();
+    updateHint();
     render();
   }
 
@@ -777,7 +829,48 @@
       }
     }
 
-    boardSvg.append(gCells,gGuides,gLines,gDraw,gNumbers,gOutside,gNodes);
+    const gGhost = el('g',{});
+    if(currentTool==='reveal' && P.solution){
+      for(const c of mesh.cells){
+        if(P.cellContent[c.id]) continue;
+        const sc = P.solution.cellContent && P.solution.cellContent[c.id];
+        if(!sc) continue;
+        if(sc.type==='number' || sc.type==='letter'){
+          gGhost.appendChild(el('text',{x:c.center.x,y:c.center.y,class:'ghostnum'}, sc.value));
+        } else if(sc.type==='circle'){
+          const r = cellInradius(c) * 0.6;
+          gGhost.appendChild(el('circle',{cx:c.center.x,cy:c.center.y,r,class:'ghostcircle'}));
+        } else if(sc.type==='fill'){
+          const d = 'M'+c.poly.map(p=>`${p.x},${p.y}`).join('L')+'Z';
+          gGhost.appendChild(el('path',{d,class:'ghostfill'}));
+        }
+      }
+      if(P.solution.edges){
+        for(const [key,e] of mesh.edges){
+          if(P.edges[key] || !P.solution.edges[key]) continue;
+          const A = mesh.vertices.get(e.a), B = mesh.vertices.get(e.b);
+          gGhost.appendChild(el('line',{x1:A.x,y1:A.y,x2:B.x,y2:B.y,class:'ghostedge'}));
+        }
+      }
+      if(P.solution.lines){
+        for(const line of P.solution.lines){
+          const already = P.lines.some(l=>l.a===line.a && l.b===line.b);
+          if(already) continue;
+          const A = nodeCoord(line.a), B = nodeCoord(line.b);
+          if(A && B) gGhost.appendChild(el('line',{x1:A.x,y1:A.y,x2:B.x,y2:B.y,class:'ghostline'}));
+        }
+      }
+      if(P.solution.outside){
+        for(const o of P.solution.outside){
+          const already = P.outside.some(x=>Math.hypot(x.x-o.x, x.y-o.y)<4);
+          if(already) continue;
+          gGhost.appendChild(el('circle',{cx:o.x,cy:o.y,r:15,class:'ghostoutsidebg'}));
+          gGhost.appendChild(el('text',{x:o.x,y:o.y,class:'ghostoutsidenum'}, o.value));
+        }
+      }
+    }
+
+    boardSvg.append(gCells,gGuides,gLines,gDraw,gGhost,gNumbers,gOutside,gNodes);
   }
 
   // ---------- Numpad ----------
@@ -826,11 +919,35 @@
   });
 
   // ---------- Cell content sheet: number / letter / circle / fill ----------
+  // ---------- In-app confirm (replaces window.confirm, unreliable in standalone iOS PWAs) ----------
+  let confirmResolve = null;
+  function askConfirm(message){
+    return new Promise(resolve=>{
+      confirmMessageEl.textContent = message;
+      confirmResolve = resolve;
+      confirmSheetEl.classList.remove('hidden');
+    });
+  }
+  confirmCancelBtn.addEventListener('click', ()=>{
+    confirmSheetEl.classList.add('hidden');
+    if(confirmResolve){ confirmResolve(false); confirmResolve = null; }
+  });
+  confirmOkBtn.addEventListener('click', ()=>{
+    confirmSheetEl.classList.add('hidden');
+    if(confirmResolve){ confirmResolve(true); confirmResolve = null; }
+  });
+  confirmSheetEl.addEventListener('click', (e)=>{
+    if(e.target===confirmSheetEl){ // tapping the backdrop cancels — this is a destructive-action gate, not a data entry sheet
+      confirmSheetEl.classList.add('hidden');
+      if(confirmResolve){ confirmResolve(false); confirmResolve = null; }
+    }
+  });
+
   function openCellSheet(cellId){
     pendingCellId = cellId;
     const existing = P.cellContent[cellId];
     cellSheetTab = existing ? existing.type : lastUsedCellTab;
-    cellSheetValue = existing && (existing.type==='number' || existing.type==='letter') ? existing.value : '';
+    cellSheetValue = existing ? existing.value : '';
     renderCellSheet();
     cellSheetEl.classList.remove('hidden');
   }
@@ -838,15 +955,14 @@
     cellSheetEl.classList.add('hidden');
     pendingCellId = null;
   }
-  function commitCellContent(type, value){
-    if(!pendingCellId) return;
+  // Confirm commits whatever is currently selected/typed; nothing selected just closes.
+  // Used by the Confirm button and by tapping outside the sheet.
+  function confirmCellSheet(){
+    if(!pendingCellId){ closeCellSheet(); return; }
+    if(!cellSheetValue){ closeCellSheet(); return; }
     pushHistory();
-    if((type==='number' || type==='letter') && value===''){
-      delete P.cellContent[pendingCellId];
-    } else {
-      P.cellContent[pendingCellId] = { type, value };
-    }
-    lastUsedCellTab = type;
+    P.cellContent[pendingCellId] = { type: cellSheetTab, value: cellSheetValue };
+    lastUsedCellTab = cellSheetTab;
     closeCellSheet();
     render();
   }
@@ -860,25 +976,23 @@
            <button data-d="4">4</button><button data-d="5">5</button><button data-d="6">6</button>
            <button data-d="7">7</button><button data-d="8">8</button><button data-d="9">9</button>
            <button id="cellNumBack">&#9003;</button><button data-d="0">0</button><button id="cellNumClearVal">C</button>
-         </div>
-         <button id="cellNumDone">Set number</button>`;
+         </div>`;
     } else if(cellSheetTab==='letter'){
       cellSheetBody.innerHTML =
-        `<div class="letter-grid">${PENTOMINO_LETTERS.map(l=>`<button data-letter="${l}">${l}</button>`).join('')}</div>`;
+        `<div class="letter-grid">${PENTOMINO_LETTERS.map(l=>
+          `<button data-letter="${l}" class="${cellSheetValue===l?'selected':''}">${l}</button>`).join('')}</div>`;
     } else if(cellSheetTab==='circle'){
       cellSheetBody.innerHTML =
         `<div class="swatch-row">
-           <button data-circle="white"><span class="swatch-dot dot-white"></span>White circle</button>
-           <button data-circle="black"><span class="swatch-dot dot-black"></span>Black circle</button>
+           <button data-circle="white" class="swatch${cellSheetValue==='white'?' selected':''}"><span class="swatch-dot dot-white"></span>White circle</button>
+           <button data-circle="black" class="swatch${cellSheetValue==='black'?' selected':''}"><span class="swatch-dot dot-black"></span>Black circle</button>
          </div>`;
-      cellSheetBody.querySelectorAll('.swatch-row button').forEach(b=>b.className='swatch');
     } else if(cellSheetTab==='fill'){
       cellSheetBody.innerHTML =
         `<div class="swatch-row">
-           <button data-fill="white"><span class="swatch-square sq-white"></span>White fill</button>
-           <button data-fill="black"><span class="swatch-square sq-black"></span>Black fill</button>
+           <button data-fill="white" class="swatch${cellSheetValue==='white'?' selected':''}"><span class="swatch-square sq-white"></span>White fill</button>
+           <button data-fill="black" class="swatch${cellSheetValue==='black'?' selected':''}"><span class="swatch-square sq-black"></span>Black fill</button>
          </div>`;
-      cellSheetBody.querySelectorAll('.swatch-row button').forEach(b=>b.className='swatch');
     }
   }
   document.querySelectorAll('.typetab').forEach(b=>{
@@ -909,11 +1023,13 @@
       if(disp) disp.textContent = '\u00A0';
       return;
     }
-    if(btn.id==='cellNumDone'){ commitCellContent('number', cellSheetValue); return; }
-    if(btn.dataset.letter){ commitCellContent('letter', btn.dataset.letter); return; }
-    if(btn.dataset.circle){ commitCellContent('circle', btn.dataset.circle); return; }
-    if(btn.dataset.fill){ commitCellContent('fill', btn.dataset.fill); return; }
+    // Letter/circle/fill: select and highlight, don't close yet — Confirm (or
+    // tapping outside the sheet) locks it in, same as typing a number does.
+    if(btn.dataset.letter){ cellSheetValue = btn.dataset.letter; renderCellSheet(); return; }
+    if(btn.dataset.circle){ cellSheetValue = btn.dataset.circle; renderCellSheet(); return; }
+    if(btn.dataset.fill){ cellSheetValue = btn.dataset.fill; renderCellSheet(); return; }
   });
+  document.getElementById('cellConfirm').addEventListener('click', confirmCellSheet);
   cellCancel.addEventListener('click', closeCellSheet);
   cellClear.addEventListener('click', ()=>{
     if(!pendingCellId) return;
@@ -923,6 +1039,10 @@
     }
     closeCellSheet();
     render();
+  });
+  // Tapping the dimmed backdrop (not the sheet itself) locks in the current selection.
+  cellSheetEl.addEventListener('click', (e)=>{
+    if(e.target===cellSheetEl) confirmCellSheet();
   });
 
 
@@ -1047,6 +1167,54 @@
     return changed;
   }
 
+  // Reveal-at-a-point: pulls whatever's at this point from the locked P.solution
+  // into the live puzzle, if it isn't already there. Same tap-or-swipe pattern
+  // and lazy per-gesture history as erase/edge.
+  let revealHistoryPushed = false;
+  function revealAt(pt){
+    if(!P.solution) return false;
+    let changed = false;
+    const ensureHistory = ()=>{ if(!revealHistoryPushed){ pushHistory(); revealHistoryPushed = true; } };
+
+    if(P.solution.outside){
+      for(const o of P.solution.outside){
+        const already = P.outside.some(x=>Math.hypot(x.x-o.x, x.y-o.y)<4);
+        if(already) continue;
+        if(Math.hypot(pt.x-o.x, pt.y-o.y) < NODE_THRESH){
+          ensureHistory();
+          P.outside.push({ id: outsideIdCounter++, x:o.x, y:o.y, value:o.value });
+          changed = true;
+        }
+      }
+    }
+    if(P.solution.lines){
+      for(const line of P.solution.lines){
+        const already = P.lines.some(l=>l.a===line.a && l.b===line.b);
+        if(already) continue;
+        const A = nodeCoord(line.a), B = nodeCoord(line.b);
+        if(A && B && distToSeg(pt,A,B) < LINE_ERASE_THRESH){
+          ensureHistory();
+          P.lines.push({a:line.a, b:line.b});
+          changed = true;
+        }
+      }
+    }
+    const eh = findNearestEdge(pt, EDGE_THRESH);
+    if(eh && !P.edges[eh.key] && P.solution.edges && P.solution.edges[eh.key]){
+      ensureHistory();
+      P.edges[eh.key] = P.solution.edges[eh.key];
+      changed = true;
+    }
+    const cell = findCellAt(pt);
+    if(cell && !P.cellContent[cell.id] && P.solution.cellContent && P.solution.cellContent[cell.id]){
+      ensureHistory();
+      const sc = P.solution.cellContent[cell.id];
+      P.cellContent[cell.id] = { type: sc.type, value: sc.value };
+      changed = true;
+    }
+    return changed;
+  }
+
   // ---------- Pointer gesture wiring ----------
   // Single finger always drives the active tool (draw / tap); panning is a
   // deliberate two-finger gesture so it never fights with line drawing.
@@ -1092,6 +1260,10 @@
       dragEdgesTouched = new Set();
       if(edgeAt(pt)) render();
     }
+    if(currentTool==='reveal'){
+      revealHistoryPushed = false;
+      if(revealAt(pt)) render();
+    }
   });
 
   boardSvg.addEventListener('pointermove', (evt)=>{
@@ -1126,6 +1298,8 @@
       if(eraseAt(pt)) render();
     } else if(currentTool==='edge'){
       if(edgeAt(pt)) render();
+    } else if(currentTool==='reveal'){
+      if(revealAt(pt)) render();
     }
   });
 
@@ -1147,6 +1321,7 @@
       if(currentTool==='draw') handleDrawRelease(pt, wasDragging);
       else if(currentTool==='erase'){ if(eraseAt(pt)) render(); }
       else if(currentTool==='edge'){ if(edgeAt(pt)) render(); }
+      else if(currentTool==='reveal'){ if(revealAt(pt)) render(); }
       else if(!wasDragging) handleTap(currentTool, pt);
     } else {
       dragChainNodeId = null;
@@ -1163,7 +1338,7 @@
       currentTool = btn.dataset.tool;
       pendingDrawNode = null;
       document.querySelectorAll('.tool[data-tool]').forEach(b=>b.classList.toggle('active', b===btn));
-      hintEl.textContent = HINTS[currentTool] || '';
+      updateHint();
       render();
     });
   });
@@ -1186,20 +1361,22 @@
            doc.lines.length>0 || doc.outside.length>0;
   }
   function freshDoc(shape, rows, cols){
-    return { shape, rows, cols, cellContent:{}, edges:{}, lines:[], outside:[] };
+    return { shape, rows, cols, cellContent:{}, edges:{}, lines:[], outside:[], solution:null };
   }
   function applyDefaultBorder(){
     for(const [key,e] of mesh.edges){
       if(e.cells.length===1) P.edges[key] = 1;
     }
   }
-  newGridBtn.addEventListener('click', ()=>{
-    if(hasContent(P) && !confirm('Start a new grid? This clears the current board (save first if you want to keep it).')) return;
+  newGridBtn.addEventListener('click', async ()=>{
+    if((hasContent(P) || P.solution) && !(await askConfirm('Start a new grid? This clears the current board and any locked solution (save first if you want to keep it).'))) return;
     P = freshDoc(shapeSelect.value, clamp(+rowsInput.value||5,1,14), clamp(+colsInput.value||5,1,14));
     history = [];
     pendingDrawNode = null;
     rebuildMesh();
     applyDefaultBorder();
+    updateSolutionStatus();
+    updateHint();
     render();
   });
 
@@ -1241,6 +1418,8 @@
     pendingDrawNode = null;
     rebuildMesh();
     syncTopbarFromP();
+    updateSolutionStatus();
+    updateHint();
     render();
   }
 
@@ -1252,6 +1431,11 @@
     deviceStatus.textContent = msg;
     deviceStatus.style.color = ok ? 'var(--accent)' : 'var(--accent2)';
   }
+  function updateSolutionStatus(){
+    solutionStatus.textContent = P.solution
+      ? 'Solution locked \u2014 use the Reveal tool (or "Reveal all") to pull clues into the board.'
+      : 'No solution locked yet. Build the full solved grid, then lock it here.';
+  }
 
   // ---------- Save / Load panel ----------
   menuBtn.addEventListener('click', ()=>{
@@ -1259,15 +1443,68 @@
     setStatus('',true);
     setDeviceStatus('',true);
     ioText.value = JSON.stringify(P); // always ready to copy, independent of on-device save working
+    updateSolutionStatus();
     refreshPuzzleList();
   });
   panelClose.addEventListener('click', ()=>{ panelEl.classList.add('hidden'); });
-  clearAllBtn.addEventListener('click', ()=>{
+  clearAllBtn.addEventListener('click', async ()=>{
     if(!hasContent(P)) return;
-    if(!confirm('Clear all cell content, lines and edges from the current grid?')) return;
+    if(!(await askConfirm('Clear all cell content, lines and edges from the current grid?'))) return;
     pushHistory();
     P.cellContent={}; P.edges={}; P.lines=[]; P.outside=[];
     applyDefaultBorder(); // clearing wipes content, not the outer frame
+    render();
+  });
+
+  // ---------- Test solve: lock a solved grid, then pull clues out of it ----------
+  lockSolutionBtn.addEventListener('click', async ()=>{
+    // No gate on cell content here — lock whatever's currently on the board, as is.
+    if(P.solution){
+      const ok = await askConfirm('Replace the currently locked solution with what\u2019s on the board now? The board will then clear to blank (bordered).');
+      if(!ok) return;
+    }
+    pushHistory();
+    P.solution = {
+      cellContent: JSON.parse(JSON.stringify(P.cellContent)),
+      edges: JSON.parse(JSON.stringify(P.edges)),
+      lines: JSON.parse(JSON.stringify(P.lines)),
+      outside: JSON.parse(JSON.stringify(P.outside))
+    };
+    P.cellContent = {}; P.lines = []; P.outside = []; P.edges = {};
+    applyDefaultBorder();
+    updateSolutionStatus();
+    updateHint();
+    render();
+    setDeviceStatus('Solution locked. Switch to the Reveal tool to pull clues back in.', true);
+  });
+
+  revealAllBtn.addEventListener('click', ()=>{
+    if(!P.solution){ setDeviceStatus('No solution locked yet.', false); return; }
+    pushHistory();
+    P.cellContent = JSON.parse(JSON.stringify(P.solution.cellContent));
+    P.edges = JSON.parse(JSON.stringify(P.solution.edges));
+    P.lines = JSON.parse(JSON.stringify(P.solution.lines));
+    P.outside = JSON.parse(JSON.stringify(P.solution.outside));
+    render();
+    setDeviceStatus('Revealed the full solution.', true);
+  });
+
+  resetGivensBtn.addEventListener('click', async ()=>{
+    if(!hasContent(P)) return;
+    if(!(await askConfirm('Clear the board back to blank (bordered) without touching the locked solution?'))) return;
+    pushHistory();
+    P.cellContent={}; P.lines=[]; P.outside=[]; P.edges={};
+    applyDefaultBorder();
+    render();
+  });
+
+  unlockSolutionBtn.addEventListener('click', async ()=>{
+    if(!P.solution) return;
+    if(!(await askConfirm('Discard the locked solution? Undo will bring it back if you change your mind.'))) return;
+    pushHistory();
+    P.solution = null;
+    updateSolutionStatus();
+    updateHint();
     render();
   });
 
@@ -1355,7 +1592,7 @@
       nameEl.textContent = name;
       const subEl = document.createElement('div');
       subEl.className = 'puzzle-sub';
-      subEl.textContent = d ? `${d.shape} \u00b7 ${d.rows}\u00d7${d.cols}` : '?';
+      subEl.textContent = d ? `${d.shape} \u00b7 ${d.rows}\u00d7${d.cols}${d.solution ? ' \u00b7 has solution' : ''}` : '?';
       meta.appendChild(nameEl); meta.appendChild(subEl);
       const actions = document.createElement('div');
       actions.className = 'puzzle-actions';
@@ -1384,8 +1621,8 @@
     }
   }
 
-  function deletePuzzle(key){
-    if(!confirm('Delete this saved puzzle? This cannot be undone.')) return;
+  async function deletePuzzle(key){
+    if(!(await askConfirm('Delete this saved puzzle? This cannot be undone.'))) return;
     try{
       localStorage.removeItem(key);
       refreshPuzzleList();
